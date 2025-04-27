@@ -5,7 +5,10 @@ INFO="[+]"
 WARN="[-]"
 ERR="\t[!]"
 OK="\t[✓]"
+KO="\t[x]"
 LOG="[*]"
+
+
 
 # Prompt the user
 read -p "$LOG Please provide the container name (remind to avoid conflicts with existing containers): " container_name
@@ -56,6 +59,9 @@ read -p "$LOG Paste your public ssh key (leave empty to skip): " ssh_key_pub
 #     echo "No public key provided. Authentication by password only."
 # fi
 
+# generating random password for user dev
+
+random_string=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 25)
 
 
 
@@ -77,10 +83,11 @@ RUN apt update && apt install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
-RUN useradd -m -s /bin/bash dev && echo "dev:dev" | chpasswd && usermod -aG sudo dev
+RUN useradd -m -s /bin/bash dev && echo "dev:$random_string" | chpasswd && usermod -aG sudo dev
 
 # Set up SSH
 RUN mkdir /var/run/sshd
+RUN mkdir /home/dev/.ssh
 RUN echo 'PermitRootLogin no' >> /etc/ssh/sshd_config
 RUN echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
 RUN echo '$ssh_key_pub' >> /home/dev/.ssh/authorized_keys
@@ -150,3 +157,62 @@ echo "$OK docker-compose.yml file written"
 echo "$LOG Creating project folder"
 mkdir  "$folder_path/projects"
 echo "$OK Creating project folder"
+
+
+ssh_quick_config=$(cat <<EOF
+
+Host $container_name
+	HostName 127.0.0.1
+	User dev
+	Port $ssh_port
+	ForwardAgent yes
+
+EOF
+)
+
+RED="\033[31m"
+GREEN="\033[32m"
+UND="\033[4m"
+RED_ITA="\033[3;31m"
+RESET_ST="\033[0m"
+
+
+CONNECTION_MESSAGE_no="\
+To use the container, do: 
+  1. ${RED_ITA}cd${RESET_ST} into the directory ${UND}$folder_path${RESET_ST} 
+  2. Execute the ${RED_ITA}docker compose${RESET_ST} command 
+  3. Connect to the container: ${GREEN}ssh -o IdentitiesOnly=yes dev@127.0.0.1 -p $ssh_port ${RESET_ST}
+NOTE: password for user ${RED}dev${RESET_ST} is  ${RED}$random_string${RESET_ST}
+"
+
+CONNECTION_MESSAGE_yes="\
+To use the container, do: 
+  1. ${RED_ITA}cd${RESET_ST} into the directory ${UND}$folder_path${RESET_ST} 
+  2. Execute the ${RED_ITA}docker compose${RESET_ST} command 
+  3. Connect to the container: 
+    ${GREEN}ssh -o IdentitiesOnly=yes dev@127.0.0.1 -p $ssh_port ${RESET_ST} or
+    ${GREEN}ssh $container_name ${RESET_ST}
+NOTE: password for user ${RED}dev${RESET_ST} is  ${RED}$random_string${RESET_ST}
+"
+
+
+
+read -p "$WARN I can add a quick SSH config to your config. Do you want to append the following to your ~/.ssh/config (yes/NO)?\n $ssh_quick_config: " yes_no
+
+# Normalize input to lowercase
+yes_no_insensitive=$(echo "$yes_no" | tr '[:upper:]' '[:lower:]')
+
+if [[ -z "$yes_no_insensitive" || "$yes_no_insensitive" == "no" ]]; then
+    echo "$KO Local ~/.ssh/config NOT modified."
+    echo "\n\n$CONNECTION_MESSAGE_no"
+    exit 1
+fi
+
+
+# Appending the configuration for quick ssh connect
+echo "$INF Appending the configuration for quick ssh connect to the file ~/.ssh/config."
+
+echo "$ssh_quick_config" >> ~/.ssh/config
+
+echo "$OK Local file ~/.ssh/config MODIFIED. Configuration added."
+echo "\n\n$CONNECTION_MESSAGE_yes"
