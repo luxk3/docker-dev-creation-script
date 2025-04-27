@@ -108,6 +108,8 @@ RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | apt-key add - \
     && apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com \$(lsb_release -cs) main" \
     && apt update && apt install -y terraform
 
+RUN echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
 # Expose SSH port
 EXPOSE 22
 
@@ -123,7 +125,6 @@ echo "$OK Dockerfile written"
 
 
 docker_compose_file=$(cat <<EOF
-version: '3.8'
 
 services:
   $container_name:
